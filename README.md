@@ -466,6 +466,40 @@ def on_bet(ctx):
     ctx.ui.reply_ephemeral(f"Locked in your wager of **{amount} coins**!")
 ```
 
+### Public Chat Delivery (`send_chat` vs `EDIT_MAIN`)
+
+By default, games update the original game message in-place (`target="EDIT_MAIN"`). This is ideal for lobbies, turn-based card tables, and game boards to prevent chat spam.
+
+However, many games (such as Trivia, battle announcements, or round-by-round logs) require sending **brand-new public messages** without overwriting the original message or being hidden in ephemeral replies.
+
+Use `ctx.ui.send_chat(...)` or set `target="NEW_MESSAGE"`:
+
+```python
+# Helper method: sends a new public message to the channel
+ctx.ui.send_chat(
+    text="🎉 A new trivia round has begun! Answer within 15 seconds!",
+    title="🧠 Round 1: Science & Nature",
+    buttons=[
+        Button(custom_id="ans_a", label="A) Mars", style="primary"),
+        Button(custom_id="ans_b", label="B) Venus", style="secondary"),
+    ]
+)
+
+# Or explicitly via ctx.ui.render:
+ctx.ui.render(
+    title="📢 Global Announcement",
+    body_lines=["Player Ray_quaza just found a Legendary Chest!"],
+    target="NEW_MESSAGE",
+    ephemeral=False
+)
+```
+
+| Method / Target | Visibility | Replaces Previous? | Best Used For |
+|---|---|---|---|
+| `target="EDIT_MAIN"` (Default) | Public | Yes (Edits main message) | Lobbies, boards, scoreboards, casino wheels |
+| `ctx.ui.send_chat(...)` / `target="NEW_MESSAGE"` | Public | No (Sends new message) | Trivia rounds, event announcements, elimination logs |
+| `ctx.ui.reply_ephemeral(...)` | Only Clicker | No (Private reply) | Secret hands, balance checks, validation errors |
+
 ---
 
 ## 2D Canvas Graphics Engine
@@ -625,25 +659,55 @@ ctx.media.search_gif("victory celebration", callback="on_gif_found")
 
 ---
 
-## HTTP & Discord Utilities
+## HTTP & Safe Network Access
 
-### Safe Outbound HTTP
+### Safe Outbound HTTP (`ctx.http.get` / `ctx.http.post`)
 
-Games can fetch live data from public web APIs (weather, sports scores, trivia, puzzle feeds):
+Angela games execute within a sandboxed WebAssembly (WASM) runtime. Because WASM runtimes have **no raw OS sockets**, standard synchronous networking libraries (such as `requests`, `urllib`, `aiohttp`, or `httpx`) are **strictly prohibited** and will crash at compile or runtime.
+
+Instead, Angela provides a secure **two-phase asynchronous HTTP gateway** via `ctx.http`:
+1. **Phase 1 (Request)**: Your cartridge registers an intent with `ctx.http.get(url, callback=...)` or `ctx.http.post(url, json=..., callback=...)`.
+2. **Phase 2 (Callback)**: Angela's host verifies the URL against SSRF protection policies, fetches the response safely, and invokes your registered callback handler with the parsed payload in `ctx.args.callback_data`.
 
 ```python
 @game.on_command("trivia")
 def fetch_trivia(ctx):
+    # Phase 1: Request data via host proxy
     ctx.http.get(
-        url="https://opentdb.com/api.php?amount=1&type=multiple",
+        url="https://the-trivia-api.com/v2/questions?limit=1",
         callback="on_trivia_received"
     )
 
 @game.on_callback("on_trivia_received")
 def on_trivia(ctx):
-    result = ctx.args.callback_data
-    # Use result to build questions
+    # Phase 2: Host hands parsed JSON response in ctx.args.callback_data
+    questions = ctx.args.callback_data
+    if questions and len(questions) > 0:
+        q = questions[0]
+        ctx.ui.send_chat(
+            title="🧠 Question Time!",
+            text=q["question"]["text"],
+            buttons=[
+                Button(custom_id="ans_correct", label=q["correctAnswer"], style="primary"),
+                Button(custom_id="ans_wrong", label=q["incorrectAnswers"][0], style="secondary"),
+            ]
+        )
 ```
+
+---
+
+## Sandboxing & Dependency Constraints
+
+To guarantee millisecond-level execution, deterministic security, and cross-platform compatibility across all Discord servers:
+
+1. **Pure Standard Library Only**: Cartridges must rely strictly on standard built-in modules (e.g. `random`, `math`, `datetime`, `json`, `collections`, `itertools`, `re`, `enum`).
+2. **No C-Extension Wheels**: External pip packages that require native C/C++ compilation (such as `numpy`, `pandas`, `cryptography`, `pillow`, `pydantic_core`) cannot run in the WASM Component Model.
+3. **Official Angela SDK**: Only import the official `angela_sdk` (or `angela-sdk` for TypeScript/JavaScript). All Discord interactions, graphics rendering, economy mutations, and HTTP calls are handled through `ctx`.
+4. **Deterministic Storage**: Cartridges cannot write to the host filesystem. Persistent state across rounds must be saved into `ctx.state` or `ctx.storage`.
+
+---
+
+## Discord Utilities
 
 ### Channel Management & Chat Listening
 

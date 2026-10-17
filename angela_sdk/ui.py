@@ -431,3 +431,42 @@ class UIContext:
         self._ctx.add_intent(intent)
         return intent
 
+    def send_chat(
+        self,
+        text: Optional[str] = None,
+        *,
+        title: Optional[str] = None,
+        subtitle: Optional[str] = None,
+        buttons: Optional[List[Union[Button, Dict[str, Any]]]] = None,
+        selects: Optional[List[Union[Select, Dict[str, Any]]]] = None,
+        embed: Optional[Union[Embed, Dict[str, Any]]] = None,
+        image: Optional[Union[str, CanvasScene]] = None,
+        thumbnail: Optional[str] = None,
+        accent_color: Optional[Union[int, str]] = None,
+    ) -> Dict[str, Any]:
+        """Send a brand new, non-ephemeral message to the Discord channel."""
+        if embed:
+            return self.render_embed(
+                embed=embed,
+                components=buttons,
+                ephemeral=False,
+                target="NEW_MESSAGE",
+            )
+        body = [text] if text else []
+        return self.render(
+            title=title,
+            subtitle=subtitle,
+            body_lines=body,
+            buttons=buttons,
+            selects=selects,
+            image=image,
+            thumbnail=thumbnail,
+            accent_color=accent_color,
+            ephemeral=False,
+            target="NEW_MESSAGE",
+        )
+
+    # Alias for convenience
+    send_message = send_chat
+
+

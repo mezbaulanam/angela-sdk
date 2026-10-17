@@ -241,3 +241,16 @@ def test_dispatch_helper():
     assert len(res["intents"]) == 1
     assert res["intents"][0]["ephemeral"] is True
 
+
+def test_send_chat():
+    ctx = Context(SAMPLE_EVENT)
+    ctx.ui.send_chat(text="Hello world!", title="Public Announcement")
+    assert len(ctx._intents) == 1
+    intent = ctx._intents[0]
+    assert intent["op"] == "UI_RENDER"
+    assert intent["target"] == "NEW_MESSAGE"
+    assert intent["ephemeral"] is False
+    assert intent["layout"]["title"] == "Public Announcement"
+    assert intent["layout"]["body_lines"] == ["Hello world!"]
+
+
