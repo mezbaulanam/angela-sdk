@@ -13,6 +13,10 @@ Angela games run as deterministic WebAssembly cartridges in Discord servers. The
 3. [Architecture & How It Works](#architecture--how-it-works)
 4. [Application Lifecycle & Routing](#application-lifecycle--routing)
 5. [The Game Context (`ctx`)](#the-game-context-ctx)
+   - [Temporary Channels (`ctx.channel`)](#temporary-channels-ctxchannel)
+   - [Permission Overwrites (`ctx.perms`)](#channel-permissions-ctxperms)
+   - [Timers & Hibernation (`ctx.timer`)](#timers--hibernation-ctxtimer)
+   - [Persistent Player Storage & Stats (`ctx.storage`)](#persistent-player-storage--stats-ctxstorage)
 6. [Economy & Multi-Currency System](#economy--multi-currency-system)
 7. [Inventory & Items](#inventory--items)
 8. [UI Engine](#ui-engine)
@@ -25,8 +29,14 @@ Angela games run as deterministic WebAssembly cartridges in Discord servers. The
    - [Complete Drawing API Reference](#complete-drawing-api-reference)
 10. [Multiplayer & Lobbies](#multiplayer--lobbies)
 11. [AI & Media Gateways](#ai--media-gateways)
-12. [HTTP & Discord Utilities](#http--discord-utilities)
-13. [Cartridge Project Layout & CLI](#cartridge-project-layout--cli)
+12. [Discord Utilities & Low-Level Primitives](#discord-utilities--low-level-primitives)
+    - [Channel Creation & Deletion (`ctx.channel`)](#channel-creation--deletion-ctxchannel)
+    - [Permission Overwrites (`ctx.perms`)](#permission-overwrites-ctxperms)
+    - [Timer Hibernation & Early Cancellation (`ctx.timer`)](#timer-hibernation--early-cancellation-ctxtimer)
+    - [Zero-DM Secret Actions & Ephemerals](#zero-dm-secret-actions--ephemerals)
+13. [Compute Tiers & Flux Metering](#compute-tiers--flux-metering)
+14. [HTTP & Safe Network Access](#http--safe-network-access)
+15. [Cartridge Project Layout & CLI](#cartridge-project-layout--cli)
 
 ---
 
@@ -237,9 +247,45 @@ difficulty = ctx.config.get("difficulty", "medium")
 
 Read-only dictionary holding private credentials configured by the slot owner (e.g., custom third-party API tokens). Secrets are never exposed to clients or persisted in game state.
 
-### Persistent Player Storage (`ctx.storage`)
+### Temporary Channels (`ctx.channel`)
 
-Store game-scoped persistent data and per-user cooldowns:
+Control isolated game channels and private discussion threads:
+
+```python
+# Create private game thread or temporary channel
+ctx.channel.create(name="secret-room", type="private_thread", auto_delete_after=300)
+
+# Delete temporary channel when match ends
+ctx.channel.delete(channel_id=123456789)
+```
+
+### Channel Permissions (`ctx.perms`)
+
+Apply low-level permission overwrites dynamically:
+
+```python
+# Set channel overwrites for a player
+ctx.perms.set(user_or_role_id=ctx.user.id, allow=["view_channel", "send_messages"])
+
+# Freeze chat during critical turn phases
+ctx.perms.lock_channel(duration_seconds=30)
+```
+
+### Timers & Hibernation (`ctx.timer`)
+
+Schedule asynchronous hibernation wakeups and early cancellations:
+
+```python
+# Schedule hibernation wake (0 MB RAM & 0 Flux while sleeping)
+ctx.timer.schedule(delay_seconds=30, callback_id="on_turn_timeout", payload={"round": 1})
+
+# Cancel active session wake early if all participants act
+ctx.timer.cancel()
+```
+
+### Persistent Player Storage & Stats (`ctx.storage`)
+
+Store game-scoped persistent data, stats, and per-user cooldowns:
 
 ```python
 # Check or set player state
@@ -248,6 +294,10 @@ ctx.storage.set("high_score", max(high_score, current_score))
 
 # Enforce a 60-second cooldown on the current user
 ctx.storage.set_cooldown(ctx.user.id, seconds=60)
+
+# Record persistent player gameplay statistics (safeguarded at max 50 keys, 48 chars)
+ctx.storage.record_stat(ctx.user.id, stat_key="games_won", value=1, mode="inc")
+ctx.storage.record_stat(ctx.user.id, stat_key="top_score", value=9990, mode="set")
 ```
 
 ---
@@ -707,14 +757,86 @@ To guarantee millisecond-level execution, deterministic security, and cross-plat
 
 ---
 
-## Discord Utilities
+## Discord Utilities & Low-Level Primitives
 
-### Channel Management & Chat Listening
+### Channel Creation & Deletion (`ctx.channel`)
+
+For games requiring private rooms, team discussion threads, or staged arenas:
 
 ```python
-# Temporarily lock channel during critical minigame phase
-ctx.discord.lock_channel(duration_seconds=30)
+# Create a private discussion thread or temporary channel
+ctx.channel.create(
+    name="secret-room",
+    type="private_thread",  # or "text" for temporary guild channel
+    auto_delete_after=600,   # Auto-cleaned after 10 minutes
+    topic="Secret Game Room"
+)
 
+# Tear down when the round or match concludes
+ctx.channel.delete(channel_id=123456789)
+```
+
+> [!NOTE]
+> To prevent channel clutter, servers enforce a hard quota of max 2 concurrent temporary channels per game cartridge.
+
+### Permission Overwrites (`ctx.perms`)
+
+Modify player or role channel visibility and permissions dynamically:
+
+```python
+# Grant a player access to view and chat in the private room
+ctx.perms.set(
+    user_or_role_id=ctx.user.id,
+    allow=["view_channel", "send_messages", "read_message_history"],
+    deny=["add_reactions"]
+)
+
+# Freeze channel chat during voting or turn calculations
+ctx.perms.lock_channel(duration_seconds=30)
+```
+
+**Allowed Overwrite Permissions**: `send_messages`, `view_channel`, `read_message_history`, `add_reactions`, `attach_files`.
+
+### Timer Hibernation & Early Cancellation (`ctx.timer`)
+
+For turn timeouts, phase countdowns, or scheduled events:
+
+```python
+# Hibernate cartridge for 45 seconds (0 MB RAM & 0 Flux during sleep)
+ctx.timer.schedule(
+    delay_seconds=45,
+    callback_id="on_night_timeout",
+    payload={"phase": "night", "round": 2}
+)
+
+# If all players submit actions before the timer expires, cancel it early:
+if len(ctx.state["votes"]) == len(ctx.session.participants):
+    ctx.timer.cancel()
+    # Resume immediately!
+```
+
+### Zero-DM Secret Actions & Ephemerals
+
+Angela enforces a strict **Zero-DM policy** to protect against Discord anti-spam flags, rate limits (HTTP 429), and user privacy blocks (`Cannot send messages to this user (50007)`).
+
+Instead of bot DMs, handle secret gameplay through:
+1. **In-Channel Ephemeral UI**:
+   ```python
+   # Only visible to the clicking user inside the channel
+   ctx.ui.reply_ephemeral(
+       text=f"🤫 Your secret role is **{my_role}**!",
+       buttons=[
+           Button("secret_action_1", "Secret Choice A", style="danger"),
+           Button("secret_action_2", "Secret Choice B", style="secondary"),
+       ]
+   )
+   ```
+2. **Private Threads**:
+   Use `ctx.channel.create(name="game-room", type="private_thread")` and invite only specific players with `ctx.perms.set()`.
+
+### Channel Management & Chat Listening (`ctx.discord`)
+
+```python
 # Listen for specific chat answers
 ctx.discord.listen_messages(
     exact_match="42",
@@ -722,6 +844,31 @@ ctx.discord.listen_messages(
     enabled=True
 )
 ```
+
+---
+
+## Compute Tiers & Flux Metering
+
+Complex games requiring pathfinding, heavy simulations, or large board states can select appropriate compute tiers in `manifest.json`:
+
+| Compute Tier | Wasm Instruction Ceiling (Fuel) | Wall-Clock Timeout | Base Flux Cost |
+|---|---|---|---|
+| `"standard"` (default) | 50,000,000 | 5.0 seconds | 1⚡ |
+| `"high"` | 150,000,000 | 12.0 seconds | 3⚡ |
+| `"ultra"` | 350,000,000 | 25.0 seconds | 6⚡ |
+
+Configure your cartridge's tier in `manifest.json`:
+
+```json
+{
+  "package_id": "grand-strategy",
+  "compute_tier": "high",
+  "max_flux_per_tick": 5
+}
+```
+
+* **Deterministic Fuel Metering**: Billing is calculated based on exact Wasm instructions executed (fuel), ensuring fair costs regardless of server load. Wall-clock timeouts act solely as safety circuit breakers.
+* **Sleeping Sessions Cost Zero**: When a game calls `ctx.timer.schedule()` or `ctx.sleep()`, RAM is released and zero fuel/Flux is charged during hibernation.
 
 ---
 
@@ -757,6 +904,7 @@ Angela cartridges require a valid `manifest.json` at project root matching the C
   "target_slot_id": 1,
   "default_command": "dice-master-py",
   "default_ui_theme": "AUTO",
+  "compute_tier": "standard",
   "max_flux_per_tick": 5,
   "config_schema": {
     "currency_name": "Coins",
@@ -781,6 +929,7 @@ Angela cartridges require a valid `manifest.json` at project root matching the C
 | `target_slot_id` | `integer` | **Yes** | Target slot ID number on the server (e.g. `1`, `2`). |
 | `default_command` | `string` | No | Slash command trigger for this game (defaults to `package_id`). |
 | `default_ui_theme` | `string` | No | Default rendering mode: `"AUTO"`, `"CV2"`, or `"CLASSIC_EMBED"`. |
+| `compute_tier` | `string` | No | Compute capability tier: `"standard"` (50M fuel / 5s), `"high"` (150M fuel / 12s), or `"ultra"` (350M fuel / 25s). |
 | `max_flux_per_tick` | `integer` | No | Compute Flux ceiling per interaction tick (1 to 100, defaults to 5). |
 | `config_schema` | `object` | No | Default server configuration options merged into `ctx.config`. |
 
