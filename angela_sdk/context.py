@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from .ai import AIContext
 from .canvas import CanvasContext
+from .channel import ChannelContext
 from .discord import DiscordContext
 from .economy import EconomyContext
 from .http import HTTPContext
@@ -12,7 +13,9 @@ from .inventory import InventoryContext
 from .lobby import LobbyContext
 from .media import MediaContext
 from .models import Args, Session, User
+from .permissions import PermissionsContext
 from .storage import StorageContext
+from .timer import TimerContext
 from .ui import UIContext
 
 
@@ -54,6 +57,9 @@ class Context:
         self.http: HTTPContext = HTTPContext(self)
         self.discord: DiscordContext = DiscordContext(self)
         self.storage: StorageContext = StorageContext(self)
+        self.channel: ChannelContext = ChannelContext(self)
+        self.perms: PermissionsContext = PermissionsContext(self)
+        self.timer: TimerContext = TimerContext(self)
 
     @property
     def host_id(self) -> int:

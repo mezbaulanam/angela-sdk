@@ -3,9 +3,12 @@ Angela Python SDK — Developer kit for Angela Games Ecosystem cartridges.
 """
 
 from .canvas import CanvasLayer, CanvasScene
+from .channel import ChannelContext
 from .context import Context, GameContext
 from .game import Game, dispatch
 from .models import Args, Session, User
+from .permissions import PermissionsContext
+from .timer import TimerContext
 from .ui import (
     ActionRow,
     Button,
@@ -21,7 +24,7 @@ from .ui import (
     Thumbnail,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "ActionRow",
@@ -29,12 +32,14 @@ __all__ = [
     "Button",
     "CanvasLayer",
     "CanvasScene",
+    "ChannelContext",
     "Container",
     "Context",
     "Embed",
     "Game",
     "GameContext",
     "MediaGallery",
+    "PermissionsContext",
     "Section",
     "Select",
     "SelectOption",
@@ -43,6 +48,7 @@ __all__ = [
     "TextDisplay",
     "TextInput",
     "Thumbnail",
+    "TimerContext",
     "User",
     "__version__",
     "dispatch",

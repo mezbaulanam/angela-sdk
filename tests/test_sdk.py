@@ -190,6 +190,12 @@ def test_other_subcontexts():
     ctx.storage.set("my_key", 12345)
     assert ctx.storage.get("my_key") == 12345
     ctx.storage.set_cooldown(ctx.user.id, 60)
+    ctx.storage.record_stat(ctx.user.id, "wins", delta=1)
+    ctx.channel.create(name="game-test", ttl_minutes=30)
+    ctx.channel.delete(12345)
+    ctx.perms.set(target=0, deny=["SEND_MESSAGES"])
+    ctx.timer.schedule(delay_seconds=45, callback="timeout_cb")
+    ctx.timer.cancel()
     ctx.sleep(10, callback="wake_cb")
 
     res = ctx.to_response()
@@ -203,6 +209,9 @@ def test_other_subcontexts():
     assert "CHANNEL_LOCK" in ops
     assert "LISTEN_MESSAGES" in ops
     assert "STORAGE_MUTATE" in ops
+    assert "CHANNEL_OP" in ops
+    assert "PERMISSION_OVERWRITE" in ops
+    assert "TIMER_CANCEL" in ops
     assert "SCHEDULE_WAKE" in ops
 
 

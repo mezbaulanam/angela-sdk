@@ -26,3 +26,15 @@ class StorageContext:
         self._ctx.add_intent(intent)
         return intent
 
+    def record_stat(self, user_id: int, key: str, delta: int = 1) -> Dict[str, Any]:
+        intent = {
+            "op": "STORAGE_MUTATE",
+            "action": "RECORD_STAT",
+            "user_id": int(user_id),
+            "key": str(key)[:48],
+            "delta": int(delta),
+        }
+        self._ctx.add_intent(intent)
+        return intent
+
+
